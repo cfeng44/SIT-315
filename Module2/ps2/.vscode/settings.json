@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "complex": "cpp",
-        "ios": "cpp",
-        "iomanip": "cpp",
-        "chrono": "cpp"
-    }
-}
