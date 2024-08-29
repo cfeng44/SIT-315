@@ -117,7 +117,7 @@ int main() {
     srand(time(0));
     int *v1, *v2, *v3;
 
-    // --- Concurrent Version ---
+    // --- Sequential Version ---
 
     // Saves the start time.
     auto c_start = high_resolution_clock::now();
