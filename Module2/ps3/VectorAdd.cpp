@@ -1,17 +1,34 @@
 // ----------------------------------------------------------------------------
 // File:        VectorAdd.cpp
 // Author:      Codey Funston
+// Version:     2.0.0 (First implementation with OpenMP)
 //
 // Description: 
 //
 //              Adding vectors of integers using sequential and parallelized
-//              programming with the POSIX threading library (pthreads).
+//              programming with the POSIX threading library (pthreads) and
+//              the OpenMP (Open Multi Processing) compiler directives
+//              library.
 //
 //              This program allows individual threads to access more than the
 //              set partition size of the vector if it finishes a partition 
 //              early. This is achieved with a shared vector index indicating 
 //              where the vector has been operated on up to. Access to the
 //              shared index is controlled by a mutex.
+//
+//              This version (2.0.0) includes a second parallelized section
+//              that uses OpenMP compiler directives instead of the pthreads
+//              library.
+//
+//              *Note: In naming and for program output, "parallel" refers to
+//              pthreads implementation and "omp" refers to OpenMp parallel
+//              programming implementation.
+//
+//              Also, in my implementation I used "#pragma omp parallel for"
+//              as it is the same as using "#pragma omp for" inside a loop
+//              declared with "#pragma omp parallel", as specified in page 2:
+//              openmp.org/wp-content/uploads/OpenMP3.0-SummarySpec.pdf
+//
 //
 // ----------------------------------------------------------------------------
 
@@ -21,13 +38,14 @@
 #include <unistd.h>
 #include <algorithm>
 #include <iomanip>
+#include <omp.h>
 
 using namespace std::chrono;
 using namespace std;
 
 const long NUM_CORES = sysconf(_SC_NPROCESSORS_ONLN);
-const size_t VECTOR_SIZE = 1000000000;
-const size_t PARTITION_SIZE = VECTOR_SIZE / 20;
+const size_t VECTOR_SIZE = 10000000;
+const size_t PARTITION_SIZE = VECTOR_SIZE / 50;
 
 // For filling a vector v.
 struct ThreadDataFill {
@@ -118,6 +136,7 @@ int main() {
     int *v1, *v2, *v3;
 
     // --- Sequential Version ---
+    #pragma region SEQUENTIAL
 
     // Saves the start time.
     auto c_start = high_resolution_clock::now();
@@ -146,8 +165,10 @@ int main() {
     free(v1);
     free(v2);
     free(v3);
+    #pragma endregion SEQUENTIAL
 
     // --- Parallelized Version ---
+    #pragma region PARALLEL
 
     // Saves the start time.
     auto p_start = high_resolution_clock::now();
@@ -232,23 +253,155 @@ int main() {
     pthread_mutex_destroy(&v1_mutex);
     pthread_mutex_destroy(&v2_mutex);
     pthread_mutex_destroy(&add_mutex);
+    #pragma endregion PARALLEL
+
+    // --- OpenMP Version ---
+    #pragma region OMP
+
+    // Saves the start time.
+    auto omp_start = high_resolution_clock::now();
+
+    // Allocating memory for each vector with space for "size" entries.
+    v1 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+    v2 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+    v3 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+
+    // In this omp pragma and others where VECTOR_SIZE is accessed, I do not 
+    // need to specify how to access it since it is declared as a constant 
+    // and so no issues can arise ie race conditions with different threads 
+    // accessing it. If VECTOR_SIZE was not a constant I might have used
+    // firstprivate(VECTOR_SIZE) to prevent any shared use and also prevent
+    // modification within the task from its original value.
+    #pragma omp parallel for default(none) shared(v1)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        v1[i] = rand() % 100;
+    }
+
+    #pragma omp parallel for default(none) shared(v2)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        v2[i] = rand() % 100;
+    }
+
+    #pragma omp parallel for default(none) shared(v1, v2, v3)
+    for (size_t i = 0; i <  VECTOR_SIZE; i++) {
+        v3[i] = v1[i] + v2[i];
+    }
+
+    // Saves the end time.
+    auto omp_stop = high_resolution_clock::now();
+
+    // Unrelated to performance comparison (extra stuff with OMP):
+
+    // Total sum of all elements in v3 using omp atomic.
+    size_t total_atomic = 0;
+    #pragma omp parallel for default(none) shared(v3, total_atomic)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        #pragma omp atomic 
+        total_atomic += v3[i];
+    }
+
+    // Total sum of all elements in v3 using omp reduction clause.
+    size_t total_reduc = 0;
+    #pragma omp parallel for reduction(+:total_reduc)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        total_reduc += v3[i];
+    }
+
+    // Total sum of all elements by first summing an individual slice of v3,
+    // then adding it to the shared sum.
+    size_t total_crit = 0;
+
+    #pragma omp parallel 
+    // *Note: omp requires braces to be on next line for creating defined 
+    // scope, errors are raised when trying to use K&R brace placement.
+    {
+        size_t small_sum = 0;
+
+        #pragma omp for
+        for (size_t i = 0; i < VECTOR_SIZE; i++) {
+            small_sum += v3[i];
+        }
+
+        #pragma omp critical
+        total_crit += small_sum;
+    }
+
+    cout << endl
+        << ((total_atomic == total_reduc && total_reduc == total_crit) ? "Totals are equal." : "Totals are un-equal.") << endl;
+
+    // Freeing/destroying all resources created.    
+    free(v1);
+    free(v2);
+    free(v3);
+    #pragma endregion OMP
+
+    // --- OpenMP Version With Scheduling Modifications ---
+    #pragma region OMP_SCHED
+
+    // Saves the start time.
+    auto omp_sched_start = high_resolution_clock::now();
+
+    // Allocating memory for each vector with space for "size" entries.
+    v1 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+    v2 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+    v3 = (int *) malloc(VECTOR_SIZE * sizeof(int));
+
+    // schedule() values were changed for each compilation. ie the executable
+    // dynam_1 had schedule(dynamic, 1).
+    #pragma omp parallel for default(none) shared(v1) schedule(static, 20)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        v1[i] = rand() % 100;
+    }
+
+    #pragma omp parallel for default(none) shared(v2) schedule(static, 20)
+    for (size_t i = 0; i < VECTOR_SIZE; i++) {
+        v2[i] = rand() % 100;
+    }
+
+    #pragma omp parallel for default(none) shared(v1, v2, v3) schedule(static, 20)
+    for (size_t i = 0; i <  VECTOR_SIZE; i++) {
+        v3[i] = v1[i] + v2[i];
+    }
+
+    // Saves the end time.
+    auto omp_sched_stop = high_resolution_clock::now();
+
+    // Freeing/destroying all resources created.  
+    free(v1);
+    free(v2);
+    free(v3);
+    #pragma endregion OMP_SCHED
 
     // The total time (duration) is the end time minus start time.
     auto c_duration = duration_cast<microseconds>(c_stop - c_start);
     auto p_duration = duration_cast<microseconds>(p_stop - p_start);
-    double factor = static_cast<double>(c_duration.count()) / static_cast<double>(p_duration.count());
+    auto omp_duration = duration_cast<microseconds>(omp_stop - omp_start);
+    auto omp_sched_duration = duration_cast<microseconds>(omp_sched_stop - omp_sched_start);
+    
+    double c_to_p_factor = static_cast<double>(c_duration.count()) / static_cast<double>(p_duration.count());
+    double c_to_omp_factor = static_cast<double>(c_duration.count()) / static_cast<double>(omp_duration.count());
 
     cout << endl
-        << "Sequential Runtime (\xC2\xB5s):      " // UTF-8 for "micro".
+        << "Sequential Runtime (\xC2\xB5s):          " // UTF-8 for "micro".
         << c_duration.count() << " microseconds" 
         << endl
-        << "Parallelized Runtime (\xC2\xB5s):    "
+        << "Parallelized Runtime (\xC2\xB5s):        "
         << p_duration.count() << " microseconds"
         << endl
-        << "Parallel Speed Increase:      "
-        << setprecision(2)
-        << factor 
-        << endl << endl;
+        << "OMP Runtime (\xC2\xB5s):                 "
+        << omp_duration.count() << " microseconds"
+        << endl
+        << "Parallel Speed Increase:          "
+        << setprecision(3) // (sig fig not decimal places)
+        << c_to_p_factor 
+        << endl
+        << "OMP Speed Increase:               "
+        << setprecision(3)
+        << c_to_omp_factor 
+        << endl << endl
+        << "OMP With Schedule Runtime (\xC2\xB5s):   " // UTF-8 for "micro".
+        << omp_sched_duration.count() << " microseconds" 
+        << endl;
 
     return EXIT_SUCCESS;
 }
