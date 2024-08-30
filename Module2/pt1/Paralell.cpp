@@ -9,6 +9,10 @@
 //
 // ----------------------------------------------------------------------------
 
-#include <iostream>
-#include <time.h> 
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
+#include <omp.h>
+#include <time.h> 
