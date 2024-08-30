@@ -1,7 +1,0 @@
-#include <iostream>
-#include <time.h> 
-#include <chrono>
-#include <cstdlib>
-#include <algorithm>
-#include <iomanip>
-#include <omp.h>
