@@ -121,9 +121,9 @@ int main() {
         << duration.count() << " microseconds" 
         << endl << endl;
 
-    matrixFile(A, "matrixA.mtrx");
-    matrixFile(B, "matrixB.mtrx");
-    matrixFile(C, "matrixC.mtrx");
+    matrixFile(A, "SEQUENTIAL_matrixA.mtrx");
+    matrixFile(B, "SEQUENTIAL_matrixB.mtrx");
+    matrixFile(C, "SEQUENTIAL_matrixC.mtrx");
 
     return EXIT_SUCCESS;
 }
