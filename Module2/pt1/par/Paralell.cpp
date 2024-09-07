@@ -30,21 +30,37 @@ using namespace std::chrono;
 using namespace std;
 
 
-const int N = 100; // N is number of rows and columns.
+const size_t N = 10000; // N is number of rows and columns.
 const size_t MAX_ENTRY_VALUE = 100;
 const long NUM_CORES = sysconf(_SC_NPROCESSORS_ONLN);
-const size_t PARTITION_SIZE = N / 20;
+const size_t PARTITION_SIZE = N*N / 20;
 
 using Matrix = int**;
 
+struct Position {
+    size_t i;
+    size_t j;
+};
+
 struct ThreadDataFill {
     Matrix m;
-    size_t index
-}
+    Position *p;
+    pthread_mutex_t *mutex;
+};
+
+struct ThreadDataDotP {
+    Matrix m1;
+    Matrix m2;
+    Matrix m3;
+    Position *p;
+    pthread_mutex_t *mutex;
+};
+
+// --- Matrix Operation Functions ---
 
 // Sets each value in a matrix to a random integer between
 // [0, MAX_ENTRY_VALUE].
-void randomMatrix(Matrix M) {
+void randomMatrix(Matrix M, Position start, Position end) {
     for (size_t i = 0; i < N; i++) {
         for (size_t j = 0; j < N; j++) {
             // *Note: In previous submissions I made an error with the modulo
@@ -100,12 +116,42 @@ void matrixFile(Matrix m, string file_name) {
     results_file.close();
 }
 
+// --- Threading Functions ---
+
+void *matrixFill(void *arg) {
+    ThreadDataFill *data = static_cast<ThreadDataFill *>(arg);
+
+    Position start, end;
+    while (true) {
+        pthread_mutex_lock(data->mutex); // Position locked.
+        start = *data->p;
+        size_t flat_p = start.i * N + start.j;
+        flat_p += PARTITION_SIZE;
+        data->p->i += flat_p / N;
+        data->p->j += flat_p % N;
+        pthread_mutex_unlock(data->mutex);
+
+        if (start.i >= N || start.j >= N) {
+            // If matrix is full: break.
+            break;
+        }
+
+        size_t flat_p_end = min(flat_p + PARTITION_SIZE, N*N);
+        end.i += flat_p_end / N;
+        end.j += flat_p_end % N;
+        
+        randomMatrix(data->m, start, end);
+    }
+
+    pthread_exit(nullptr);
+}
+
 int main() {
     // Sets the random seed to a different value each time the program executes.
     // Time(0) returns the current time since Epoch time (Jan 1 1970).
     srand(time(0));
     int **A, **B, **C;
-    
+
     A = new int*[N];
     B = new int*[N];
     C = new int*[N];
@@ -117,24 +163,53 @@ int main() {
     }
 
     // Saves the start time.
-    auto start = high_resolution_clock::now();
+    auto start= high_resolution_clock::now();
     
-    randomMatrix(A);
-    randomMatrix(B);
-    dotProduct(A, B, C);
+    pthread_t tid[NUM_CORES];
+    ThreadDataFill *fill_data;
+    fill_data = new ThreadDataFill [NUM_CORES];
+    Position m1_pos; m1_pos.i = 0; m1_pos.j = 0;
+    Position m2_pos; m2_pos.i = 0; m2_pos.j = 0;
+
+    pthread_mutex_t m1_mutex, m2_mutex;
+    pthread_mutex_init(&m1_mutex, nullptr);
+    pthread_mutex_init(&m2_mutex, nullptr);
+
+    for (size_t i = 0; i < NUM_CORES / 2; i++) {
+        fill_data[i].m = A;
+        fill_data[i].p = &m1_pos;
+        fill_data[i].mutex = &m1_mutex;
+        pthread_create(&tid[i], nullptr, matrixFill, &fill_data[i]);
+    }
+    for (size_t i = NUM_CORES / 2; i < NUM_CORES; i++) {
+        fill_data[i].m = B;
+        fill_data[i].p = &m2_pos;
+        fill_data[i].mutex = &m2_mutex;
+        pthread_create(&tid[i], nullptr, matrixFill, &fill_data[i]);
+    }
+    for (size_t i = 0; i < NUM_CORES; i++) {
+        pthread_join(tid[i], nullptr);
+    } 
 
     // Saves the finish time.
     auto finish = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(finish - start);
+
+    // Deleting allocated memory.
+    for (int i = 0; i < N; ++i) {
+        delete[] A[i]; 
+        delete[] B[i]; 
+        delete[] C[i]; 
+    } 
 
     cout << endl
         << "Sequential Runtime (\xC2\xB5s):          " // UTF-8 for "micro".
         << duration.count() << " microseconds" 
         << endl << endl;
 
-    matrixFile(A, "matrixA.mtrx");
-    matrixFile(B, "matrixB.mtrx");
-    matrixFile(C, "matrixC.mtrx");
+    // matrixFile(A, "matrixA.mtrx");
+    // matrixFile(B, "matrixB.mtrx");
+    // matrixFile(C, "matrixC.mtrx");
 
     return EXIT_SUCCESS;
 }
