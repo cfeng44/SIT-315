@@ -96,6 +96,7 @@ TrafficLightRecord stringToRecord(string in_string) {
     // By using a string stream we can take each word from the string without
     // having to do manual checking for spaces by moving through character by
     // character.
+
     data_string_stream >> record.time;
     data_string_stream >> record.id;
     data_string_stream >> record.cars;
@@ -108,8 +109,7 @@ TrafficLightRecord stringToRecord(string in_string) {
 // Producer threads read from the data file and place it in the queue if there
 // is space.
 //
-// *Note: The function is blocking to its thread while there is no space in
-// the queue.
+// *Note: The function is blocking to its thread while there is full.
 void *produce(void *arg) {
     Prod_ThreadData *data = static_cast<Prod_ThreadData *>(arg);
 
@@ -117,6 +117,8 @@ void *produce(void *arg) {
     while (true) {
         pthread_mutex_lock(data->mutex);
 
+        // Checks to see if the buffer is full, and if it is, waits for 
+        // a consumer to send an alert that it has space.
         while (data->buffer->size() == BUFF_SIZE) {
             pthread_cond_wait(data->buff_has_space, data->mutex);
         }
@@ -128,11 +130,7 @@ void *produce(void *arg) {
             // A "silly" record is used to signal to all the consumers
             // that there is no data left.
             for (int i = 0; i < NUM_THREADS - (NUM_THREADS / 2); i++) {
-                TrafficLightRecord silly_record;
-                silly_record.time = -1;
-                silly_record.id = -1;
-                silly_record.cars = -1;
-
+                TrafficLightRecord silly_record = {-1, -1, -1};
                 data->buffer->push(silly_record);
                 pthread_cond_broadcast(data->buff_has_task);
             }
@@ -151,22 +149,36 @@ void *produce(void *arg) {
     pthread_exit(nullptr);
 }
 
+// Worker function for consumer threads.
+//
+// Consumer threads take data from the queue, then place it in a records
+// container.
+//
+// *Note: The function is blocking to its thread while the queue is empty.
 void *consume(void *arg) {
     Cons_ThreadData *data = static_cast<Cons_ThreadData *>(arg);
 
     while (true) {
         pthread_mutex_lock(data->mutex);
 
+        // Checks to see if the buffer has any tasks, if so, waits for a 
+        // producer to send an alert that it has a task.
         while (data->buffer->empty()) {
             pthread_cond_wait(data->buff_has_task, data->mutex);
         }
 
         TrafficLightRecord record = data->buffer->front();
+
+        // If a "silly" record is received the thread exits because all the
+        // data from the file has been received and all tasks have been
+        // assigned/completed.
         if (record.time == -1) {
             pthread_mutex_unlock(data->mutex);
             break;
         }
 
+        // After calling front() on a queue it must be popped because pop()
+        // doesn't return the value removed unlike most other languages.
         data->buffer->pop();
         data->records->push_back(record);
 
@@ -177,6 +189,10 @@ void *consume(void *arg) {
     pthread_exit(nullptr);
 }
 
+// Returns a vector of traffic light records with the most congestion.
+//
+// @param N how many of the most congested lights you want data on.
+// @param hr the hour of the day that you care about.
 vector<TrafficLightRecord> mostCongestion(vector<TrafficLightRecord> &records,
                                             int hr_start, int N) {
     vector<TrafficLightRecord> N_most_congested_lights(N);
@@ -189,6 +205,12 @@ vector<TrafficLightRecord> mostCongestion(vector<TrafficLightRecord> &records,
         }
     }
 
+    // Doing an nth_element sort is more efficient for our requirements since
+    // it puts all the elements that are greater than the element at index n
+    // in a sorted version of the vector. So we end up with all the elements
+    // we want to the right (unsorted, they are sorted separately below).
+    //
+    // It runs in O(n) time as opposed to O(nlogn) time for a whole sort.
     nth_element(subset.begin(), subset.end() - N, subset.end(), compRecord);
 
     for (int i = subset.size() - N, j = 0; i < subset.size(), j < N; i++, j++) {
@@ -200,6 +222,7 @@ vector<TrafficLightRecord> mostCongestion(vector<TrafficLightRecord> &records,
     return N_most_congested_lights;
 }
 
+// Returns formatted string representation of a traffic light record.
 string visualRecord(TrafficLightRecord record) {
     string id, time, cars;
 
@@ -212,8 +235,8 @@ string visualRecord(TrafficLightRecord record) {
 
 int main(int argc, char *argv[]) {
     ifstream myFile("./data");
-    if (!myFile.is_open()) return -1;
     queue<TrafficLightRecord> buffer;
+    vector<TrafficLightRecord> records;
 
     pthread_cond_t buff_has_task, buff_has_space;
     pthread_cond_init(&buff_has_task, nullptr);
@@ -225,7 +248,7 @@ int main(int argc, char *argv[]) {
     vector<pthread_t> tid(NUM_THREADS);
     vector<Prod_ThreadData> prod_thread_data(NUM_THREADS / 2);
     vector<Cons_ThreadData> cons_thread_data(NUM_THREADS - (NUM_THREADS / 2));
-    vector<TrafficLightRecord> records;
+    
 
     for (int i = 0; i < NUM_THREADS / 2; i++) {
         prod_thread_data[i].buff_has_task = &buff_has_task;
@@ -252,6 +275,7 @@ int main(int argc, char *argv[]) {
         pthread_join(tid[i], nullptr);
     }
 
+    // atoi() converts an "Array of characters TO an Int".
     int N = atoi(argv[1]), hr = atoi(argv[2]);
 
     vector<TrafficLightRecord> congested_lights = mostCongestion(records, hr, N);
