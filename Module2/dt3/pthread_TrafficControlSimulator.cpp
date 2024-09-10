@@ -50,7 +50,7 @@ struct C_ThreadData {
 
 void produce(ifstream &file) {
     string data = readDataFromFile(file);
-    TrafficLightRecord record = stringToRecord(data);
+    // TrafficLightRecord record = stringToRecord(data);
 }
 
 string readDataFromFile(ifstream &file) {
