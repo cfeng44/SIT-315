@@ -1,6 +1,6 @@
 import random
 import os
-NUM_TRAFFIC_LIGHTS = 1000
+NUM_TRAFFIC_LIGHTS = 3
 times = []
 
 for hr in range(24):
@@ -13,5 +13,5 @@ file_path = "./data"
 with open(file_path, 'w') as file:
     for time in times:
         for i in range(1, NUM_TRAFFIC_LIGHTS + 1):
-            cars = random.randint(0, 100000)
+            cars = random.randint(0, 100)
             file.write(f"{time} {i} {cars}\n")
