@@ -8,14 +8,6 @@
 //              Parallel implementation of the quick sort algorithm, using 
 //              OpenMP compiler directives.
 //
-//              For recursive quickSort() calls with sufficiently large data
-//              inputs a thread is assigned and multiple calls are run in 
-//              parallel. However, as the piece of data being accessed gets 
-//              small (in this case 1000 seemed to be appropriate based on
-//              tests with total data sizes > 10,000) the thread allocation
-//              overhead is too much, so it is further calls are made
-//              sequentially.
-//
 // ----------------------------------------------------------------------------
 
 #include <chrono>
@@ -30,8 +22,8 @@ using namespace std;
 
 const int NUM_CORES = omp_get_num_procs();
 
-// A number to output as the runtime that is clearly an outlier by a
-// significant amount, and very perfect with all 9's.
+// A number to output as the runtime that is clearly an outlier by a significant
+//  amount, and very perfect/non-random looking with all 9's.
 const size_t ERROR_TIME_VALUE = 99999999999;
 
 // Sorts a vector of integers inplace.
