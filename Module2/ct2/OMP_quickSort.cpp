@@ -110,7 +110,7 @@ int main() {
 
     auto start = high_resolution_clock::now();
 
-    vector<int> data = vector<int>(100);
+    vector<int> data = vector<int>(2000000);
     for (size_t i = 0; i < 100; i++) {
         data[i] = rand() % 100;
     }
