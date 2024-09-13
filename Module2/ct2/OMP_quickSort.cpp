@@ -64,27 +64,20 @@ void quickSort(vector<int> &data, size_t start, size_t end) {
 
     // 
     if (end - start > 1000) {
-        #pragma omp parallel num_threads(NUM_CORES)
+        #pragma omp parallel
         {
-            // The sections directive above has an automatic barrier at the 
-            // end of the sections, but since the threads are independent there
-            // is no need for waiting.
-            //
-            // *Note: Even though this quickSort() is done inplace and one data
-            // variable is being accessed by reference, the sections accessed
-            // have no crossover.
-
-            #pragma omp sections nowait
+            #pragma omp single nowait
             {
-                #pragma omp section
+                #pragma omp task
                 {
                     quickSort(data, start, l_pos - 1);
                 }
 
-                #pragma omp section
+                #pragma omp task
                 {
                     quickSort(data, l_pos + 1, end);
                 }
+                #pragma omp taskwait
             }
         }
     }
@@ -110,7 +103,7 @@ int main() {
 
     auto start = high_resolution_clock::now();
 
-    vector<int> data = vector<int>(100);
+    vector<int> data = vector<int>(2000000);
     for (size_t i = 0; i < 100; i++) {
         data[i] = rand() % 100;
     }
