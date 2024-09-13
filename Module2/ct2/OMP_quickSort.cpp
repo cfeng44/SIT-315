@@ -62,39 +62,42 @@ void quickSort(vector<int> &data, size_t start, size_t end) {
 
     swap(data[l_pos], pivot);
 
-    // 
+    // Based on tests 1000 works well as a stopping point for assigning threads
+    // as the overhead is too significant compared to the parallel speed
+    // increase.
     if (end - start > 1000) {
-        #pragma omp parallel num_threads(NUM_CORES)
+        // shared(data) is used to ensure that threads are working on the same
+        // data since this quicksort is done inplace.
+        #pragma omp task shared(data)
         {
-            // The sections directive above has an automatic barrier at the 
-            // end of the sections, but since the threads are independent there
-            // is no need for waiting.
-            //
-            // *Note: Even though this quickSort() is done inplace and one data
-            // variable is being accessed by reference, the sections accessed
-            // have no crossover.
+            quickSort(data, start, l_pos - 1);
+        }
 
-            #pragma omp sections nowait
-            {
-                #pragma omp section
-                {
-                    quickSort(data, start, l_pos - 1);
-                }
-
-                #pragma omp section
-                {
-                    quickSort(data, l_pos + 1, end);
-                }
-            }
+        #pragma omp task shared(data)
+        {
+            quickSort(data, l_pos + 1, end);
         }
     }
 
+    // For when data is small, do sequentially.
     else {
         quickSort(data, start, l_pos - 1);
         quickSort(data, l_pos + 1, end);
     }
 }
 
+// Extra function that creates a parallel region once, then calls quickSort
+// which handles thread allocation within using tasks.
+void parQuickSort(vector<int> &data, size_t start, size_t end) {
+    #pragma omp parallel
+    {
+        // We only want one thread to call this.
+        #pragma omp single
+        quickSort(data, start, end);
+    }
+}
+
+// Returns true if data is sorted in ascending order.
 bool ordered(vector<int> data) {
     for (int i = 1; i < data.size(); i++) {
         if (data[i] >= data[i - 1]) {
@@ -115,7 +118,7 @@ int main() {
         data[i] = rand() % 100;
     }
 
-    quickSort(data, 0, data.size() - 1);
+    parQuickSort(data, 0, data.size() - 1);
 
     auto end = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(end - start);
