@@ -1,76 +1,83 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <CL/cl.h>
+#include <OpenCL/opencl.h>
 
 #define PRINT 1
 
-int SZ = 8;
-int *v;
+int SIZE = 8; // Vector size.
+int *v; // Vector for data on GPU.
+int err; 
 
-//ToDo: Add comment (what is the purpose of this variable)
-cl_mem bufV;
+// --- OpenCL objects ---
 
-//ToDo: Add comment (what is the purpose of this variable)
-cl_device_id device_id;
-//ToDo: Add comment (what is the purpose of this variable)
-cl_context context;
-//ToDo: Add comment (what is the purpose of this variable)
-cl_program program;
-//ToDo: Add comment (what is the purpose of this variable)
-cl_kernel kernel;
-//ToDo: Add comment (what is the purpose of this variable)
-cl_command_queue queue;
-cl_event event = NULL;
+cl_mem bufV; // The data for the GPU.
+cl_device_id device_id; // Used to keep track of the device.
+cl_context context; // For containing devices and kernels with memory and syncing.
+cl_program program; // A program has kernels.
+cl_kernel kernel; // The function to be run.
+cl_command_queue queue; // Data structure holding instructions.
+cl_event event = NULL; // cl_event's allow us to sync operations in contexts.
 
-int err;
+// --- Function Declarations (implemented after main() function in this file) ---
 
-//ToDo: Add comment (what is the purpose of this function)
+// Note: I have changed a few functions so that the accept a variable by
+// reference so that global variables don't have to be used. Most of the 
+// time this is not necessary because a lot of the OpenCL types are
+// typedefs for pointers. However, to be safe and not be required to
+// check every type the functions pass by reference with the ampersand 
+// character.
+
 cl_device_id create_device();
-//ToDo: Add comment (what is the purpose of this function)
-void setup_openCL_device_context_queue_kernel(char *filename, char *kernelname);
-//ToDo: Add comment (what is the purpose of this function)
 cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename);
-//ToDo: Add comment (what is the purpose of this function)
-void setup_kernel_memory();
-//ToDo: Add comment (what is the purpose of this function)
+void setup_kernel_memory(cl_mem &buf);
 void copy_kernel_args();
-//ToDo: Add comment (what is the purpose of this function)
 void free_memory();
+void setup_openCL_device_context_queue_kernel(cl_kernel &kernel, char *filename,
+                                              char *kernel_name);
+
+// These two are unrelated to OpenCl and are just helper functions.
 
 void init(int *&A, int size);
 void print(int *A, int size);
 
-int main(int argc, char **argv)
+int main(int argc, char **argv) 
 {
-    if (argc > 1)
-        SZ = atoi(argv[1]);
+    // User can choose their own SIZE value.
+    if (argc > 1) 
+    {
+        SIZE = atoi(argv[1]);
+    }
+    init(v, SIZE);
 
-    init(v, SZ);
+    // This is a single element array with its element the same size as the 
+    // vector.
+    size_t global[1] = {(size_t)SIZE};
 
+    // Initial vector
+    print(v, SIZE);
 
-    //ToDo: Add comment (what is the purpose of this variable)
-    size_t global[1] = {(size_t)SZ};
-
-    //initial vector
-    print(v, SZ);
-
-    setup_openCL_device_context_queue_kernel((char *)"./vector_ops.cl", (char *)"square_magnitude");
-
-    setup_kernel_memory();
+    setup_openCL_device_context_queue_kernel(kernel, (char *)"./vector_ops.cl",
+                                             (char *)"square_magnitude");
+    setup_kernel_memory(bufV);
     copy_kernel_args();
 
-    //ToDo: Add comment (what is the purpose of this function? What are its arguments? Check the documenation to find more https://www.khronos.org/registry/OpenCL/sdk/2.2/docs/man/html/clEnqueueNDRangeKernel.html)
+    // This call enqueues the specified kernel and associates its execution on the
+    // device with a cl_event. The host thread then waits until this event status
+    // is appropriate.
     clEnqueueNDRangeKernel(queue, kernel, 1, NULL, global, NULL, 0, NULL, &event);
     clWaitForEvents(1, &event);
 
-    //ToDo: Add comment (what is the purpose of this function? What are its arguments?)
-    clEnqueueReadBuffer(queue, bufV, CL_TRUE, 0, SZ * sizeof(int), &v[0], 0, NULL, NULL);
+    // The reason we waited above for the event to finish was so that we 
+    // read the updated buffer. We then read from buffer into the pointer 
+    // to our vector, v.
+    clEnqueueReadBuffer(queue, bufV, CL_TRUE, 0, SIZE * sizeof(int), &v[0], 0,
+                        NULL, NULL);
 
-    //result vector
-    print(v, SZ);
+    // Result vector
+    print(v, SIZE);
 
-    //frees memory for device, kernel, queue, etc.
-    //you will need to modify this to free your own buffers
+    // Frees memory for device, kernel, queue, etc.
+    // you will need to modify this to free your own buffers.
     free_memory();
 }
 
@@ -113,12 +120,12 @@ void print(int *A, int size)
     printf("\n----------------------------\n");
 }
 
-void free_memory()
+void free_memory(cl_mem &buf, cl_kernel &, )
 {
-    //free the buffers
+    // Free the buffers
     clReleaseMemObject(bufV);
 
-    //free opencl objects
+    // Free opencl objects
     clReleaseKernel(kernel);
     clReleaseCommandQueue(queue);
     clReleaseProgram(program);
@@ -130,8 +137,7 @@ void free_memory()
 
 void copy_kernel_args()
 {
-    //ToDo: Add comment (what is the purpose of clSetKernelArg function? What are its arguments?)
-    clSetKernelArg(kernel, 0, sizeof(int), (void *)&SZ);
+    clSetKernelArg(kernel, 0, sizeof(int), (void *)&SIZE);
     clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&bufV);
 
     if (err < 0)
@@ -142,22 +148,22 @@ void copy_kernel_args()
     }
 }
 
-void setup_kernel_memory()
+void setup_kernel_memory(cl_mem &buf)
 {
-    //ToDo: Add comment (what is the purpose of clCreateBuffer function? What are its arguments?) 
-    //The second parameter of the clCreateBuffer is cl_mem_flags flags. Check the OpenCL documention to find out what is it's purpose and read the List of supported memory flag values 
-    bufV = clCreateBuffer(context, CL_MEM_READ_WRITE, SZ * sizeof(int), NULL, NULL);
+    buf = clCreateBuffer(context, CL_MEM_READ_WRITE, SIZE * sizeof(int), NULL,
+                         NULL);
 
     // Copy matrices to the GPU
-    clEnqueueWriteBuffer(queue, bufV, CL_TRUE, 0, SZ * sizeof(int), &v[0], 0, NULL, NULL);
+    clEnqueueWriteBuffer(queue, buf, CL_TRUE, 0, SIZE * sizeof(int), &v[0], 0,
+                         NULL, NULL);
 }
 
-void setup_openCL_device_context_queue_kernel(char *filename, char *kernelname)
+void setup_openCL_device_context_queue_kernel(cl_kernel &kernel, char *filename, 
+                                              char *kernel_name)
 {
     device_id = create_device();
-    cl_int err;
 
-    //ToDo: Add comment (what is the purpose of clCreateBuffer function?)
+    cl_int err;
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &err);
     if (err < 0)
     {
@@ -167,22 +173,22 @@ void setup_openCL_device_context_queue_kernel(char *filename, char *kernelname)
 
     program = build_program(context, device_id, filename);
 
-    //ToDo: Add comment (what is the purpose of clCreateCommandQueueWithProperties function?)
-    queue = clCreateCommandQueueWithProperties(context, device_id, 0, &err);
+    queue = clCreateCommandQueue(context, device_id, 0, &err);
     if (err < 0)
     {
+        printf("ehy");
         perror("Couldn't create a command queue");
         exit(1);
-    };
+    }
 
 
-    kernel = clCreateKernel(program, kernelname, &err);
+    kernel = clCreateKernel(program, kernel_name, &err);
     if (err < 0)
     {
         perror("Couldn't create a kernel");
         printf("error =%d", err);
         exit(1);
-    };
+    }
 }
 
 cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename)
@@ -193,7 +199,7 @@ cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename)
     char *program_buffer, *program_log;
     size_t program_size, log_size;
 
-    /* Read program file and place content into buffer */
+    // Read program file and place content into buffer
     program_handle = fopen(filename, "r");
     if (program_handle == NULL)
     {
@@ -208,9 +214,7 @@ cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename)
     fread(program_buffer, sizeof(char), program_size, program_handle);
     fclose(program_handle);
 
-    //ToDo: Add comment (what is the purpose of clCreateProgramWithSource function? What are its arguments?)
-    program = clCreateProgramWithSource(ctx, 1,
-                                        (const char **)&program_buffer, &program_size, &err);
+    program = clCreateProgramWithSource(ctx, 1, (const char **)&program_buffer, &program_size, &err);
     if (err < 0)
     {
         perror("Couldn't create the program");
@@ -218,24 +222,20 @@ cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename)
     }
     free(program_buffer);
 
-    /* Build program 
-
-   The fourth parameter accepts options that configure the compilation. 
-   These are similar to the flags used by gcc. For example, you can 
-   define a macro with the option -DMACRO=VALUE and turn off optimization 
-   with -cl-opt-disable.
-   */
+    // Build program: 
+    // The fourth parameter accepts options that configure the compilation. 
+    // These are similar to the flags used by gcc. For example, you can 
+    // define a macro with the option -DMACRO=VALUE and turn off optimization 
+    // with -cl-opt-disable.
     err = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     if (err < 0)
     {
 
-        /* Find size of log and print to std output */
-        clGetProgramBuildInfo(program, dev, CL_PROGRAM_BUILD_LOG,
-                              0, NULL, &log_size);
+        // Find size of log and print to std output
+        clGetProgramBuildInfo(program, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
         program_log = (char *)malloc(log_size + 1);
         program_log[log_size] = '\0';
-        clGetProgramBuildInfo(program, dev, CL_PROGRAM_BUILD_LOG,
-                              log_size + 1, program_log, NULL);
+        clGetProgramBuildInfo(program, dev, CL_PROGRAM_BUILD_LOG, log_size + 1, program_log, NULL);
         printf("%s\n", program_log);
         free(program_log);
         exit(1);
@@ -250,7 +250,7 @@ cl_device_id create_device() {
    cl_device_id dev;
    int err;
 
-   /* Identify a platform */
+   // Identify a platform
    err = clGetPlatformIDs(1, &platform, NULL);
    if(err < 0) {
       perror("Couldn't identify a platform");
